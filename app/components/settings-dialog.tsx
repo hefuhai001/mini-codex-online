@@ -75,6 +75,22 @@ export default function SettingsDialog({ open, settings, onSave, onClose }: Prop
             />
           </label>
 
+          <label className="block">
+            <span className="mb-1 block text-[12px] text-zinc-400">回复语言</span>
+            <select
+              value={draft.language}
+              onChange={(e) => setDraft({ ...draft, language: e.target.value })}
+              className="w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-indigo-400/50"
+            >
+              <option value="zh-CN">简体中文（始终）</option>
+              <option value="auto">跟随用户输入</option>
+              <option value="en">English</option>
+            </select>
+            <span className="mt-1 block text-[11px] leading-relaxed text-zinc-600">
+              代码、命令、文件路径始终保持原文，只影响说明性文字。
+            </span>
+          </label>
+
           <div>
             <span className="mb-1.5 block text-[12px] text-zinc-400">快速填充</span>
             <div className="flex flex-wrap gap-1.5">

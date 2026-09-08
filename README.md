@@ -21,6 +21,7 @@ pnpm dev
 | `OPENAI_BASE_URL` | OpenAI 兼容接口地址 | 空 |
 | `OPENAI_API_KEY` | 接口密钥 | 空 |
 | `OPENAI_MODEL` | 模型名 | `gpt-4o-mini` |
+| `AGENT_LANGUAGE` | 回复语言：`zh-CN` / `auto` / `en`（界面「设置」可覆盖） | `zh-CN` |
 | `DOCKER_HOST` | daemon 地址，默认本机 2375 端口 | `tcp://localhost:2375` |
 | `DOCKER_MODE` | `wsl` 用 WSL 里的 docker CLI 连上面的地址；`host` 用本机 docker CLI | `wsl` |
 | `WSL_DOCKER_HOST` | 仅 WSL 模式生效，覆盖 `DOCKER_HOST`（WSL 访问 Windows 端口不是 localhost 时用） | 空 |

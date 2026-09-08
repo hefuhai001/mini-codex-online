@@ -62,6 +62,8 @@ export interface Settings {
   apiKey: string;
   model: string;
   image: string;
+  /** 回复语言：zh-CN / en / auto */
+  language: string;
 }
 
 export interface DockerStatus {

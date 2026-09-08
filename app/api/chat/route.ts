@@ -15,7 +15,7 @@ export const maxDuration = 800;
 interface ChatRequestBody {
   message?: string;
   history?: { role: "user" | "assistant"; content: string }[];
-  config?: { baseUrl?: string; apiKey?: string; model?: string; image?: string };
+  config?: { baseUrl?: string; apiKey?: string; model?: string; image?: string; language?: string };
   sandboxId?: string;
   files?: UploadedFileRef[];
 }
@@ -73,6 +73,7 @@ export async function POST(req: Request) {
           files: body.files,
           sandboxId: body.sandboxId,
           image: body.config?.image,
+          language: body.config?.language,
           history: body.history,
           emit: send,
           signal: req.signal,

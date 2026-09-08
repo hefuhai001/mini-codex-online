@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "gpt-4o-mini",
   image: "ubuntu:24.04",
+  language: "zh-CN",
 };
 
 let seq = 0;

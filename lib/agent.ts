@@ -2,7 +2,7 @@
  * 作用：代理核心。生成任务计划 → 主代理在容器中循环调用工具执行 →
  *       可并行派发拥有独立容器的子代理 → 汇总并输出最终总结。
  * 使用位置：仅被 app/api/chat/route.ts 调用，是唯一的代理入口。
- * 输入：TaskInput { cfg 模型配置, task 用户任务, files 已上传文件, sandboxId, image, history, emit, signal }。
+ * 输入：TaskInput { cfg 模型配置, task 用户任务, files 已上传文件, sandboxId, image, language, history, emit, signal }。
  * 输出：无返回值，通过 emit 推送 AgentEvent 流（status/plan/step/tool/subagent/delta/container/error/done）。
  */
 import { randomUUID } from "node:crypto";
@@ -45,7 +45,7 @@ ${MOUNT_HINT}
 4. 命令要有超时意识，长任务拆开执行；运行前先确认基础命令存在
 5. 写脚本用 write_file 写入文件，再用 exec 执行，不要依赖 heredoc
 6. 出错时先看 stderr 再修正，反复失败要如实汇报，不要假装成功
-7. 全部完成后调用 finish，用中文给出简洁总结：做了什么、产物路径、如何运行/验证`;
+7. 全部完成后调用 finish，给出简洁总结：做了什么、产物路径、如何运行/验证`;
 
 const SUBAGENT_SYSTEM = `你是 Mini Codex 派出的子代理，在一个独立的临时容器中执行单一子任务。
 
@@ -54,7 +54,7 @@ const SUBAGENT_SYSTEM = `你是 Mini Codex 派出的子代理，在一个独立�
 - 工作目录 ${WORKDIR}，缺少的工具自行安装
 ${MOUNT_HINT}
 - 用 exec 运行命令，用 write_file 写文件，用 read_file / list_files 查看结果
-- 完成后必须调用 finish，用中文返回：执行结果、产物路径、验证方式、遇到的问题`;
+- 完成后必须调用 finish，返回：执行结果、产物路径、验证方式、遇到的问题`;
 
 const PLANNER_SYSTEM = `你是任务规划器。根据用户需求输出严格 JSON，不要任何额外文字，不要 markdown 代码块：
 {
@@ -63,6 +63,29 @@ const PLANNER_SYSTEM = `你是任务规划器。根据用户需求输出严格 J
   "steps": [{"title": "步骤名", "detail": "具体做法"}]
 }
 要求：steps 3-7 步，按执行顺序排列，彼此尽量独立可并行。`;
+
+/**
+ * 生成语言约束，注入到规划器、主代理、子代理的提示词中。
+ * 默认简体中文（很多模型在没有显式约束时会用英文作答）。
+ */
+export function languageRule(language?: string): string {
+  switch ((language ?? "").trim().toLowerCase()) {
+    case "en":
+    case "en-us":
+    case "english":
+      return "语言要求：全程使用英语与用户交流，包括进度说明、报错解释与最终总结。";
+    case "auto":
+      return "语言要求：始终使用与用户输入相同的语言回复；用户使用中文时，全程使用简体中文。";
+    case "zh":
+    case "zh-cn":
+    case "zh-hans":
+    case "chinese":
+    case "":
+      return "语言要求：全程使用简体中文与用户交流，包括进度说明、工具调用前后的解释、报错说明和最终总结；只有代码、shell 命令、标识符、文件路径与第三方日志保持原文。无论用户用什么语言提问，回复都用简体中文。";
+    default:
+      return `语言要求：全程使用 ${language} 与用户交流；代码、命令、标识符与文件路径保持原文。`;
+  }
+}
 
 const MAIN_TOOLS: ToolSchema[] = [
   {
@@ -178,6 +201,8 @@ export interface TaskInput {
   files?: UploadedFileRef[];
   sandboxId?: string;
   image?: string;
+  /** 回复语言：zh-CN / en / auto，默认取 settings 或 AGENT_LANGUAGE 环境变量 */
+  language?: string;
   history?: { role: "user" | "assistant"; content: string }[];
   emit: (event: AgentEvent) => void;
   signal?: AbortSignal;
@@ -251,6 +276,7 @@ async function planTask(
   task: string,
   files: UploadedFileRef[],
   signal?: AbortSignal,
+  langRule = "",
 ): Promise<Plan> {
   const fileHint = files.length
     ? `\n用户已上传文件（容器中路径）：\n${files
@@ -260,8 +286,8 @@ async function planTask(
   const raw = await chatJson(
     cfg,
     [
-      { role: "system", content: PLANNER_SYSTEM },
-      { role: "user", content: `用户需求：\n${task}${fileHint}` },
+      { role: "system", content: [PLANNER_SYSTEM, langRule].filter(Boolean).join("\n\n") },
+      { role: "user", content: `用户需求：\n${task}${fileHint}${langRule ? `\n\n${langRule}` : ""}` },
     ],
     signal,
   );
@@ -287,6 +313,7 @@ function createMainHandlers(ctx: {
   cfg: LLMConfig;
   signal?: AbortSignal;
   image?: string;
+  langRule?: string;
 }): Record<string, Handler> {
   const handlers = createWorkerHandlers(ctx.sandbox, ctx.signal);
   let subIndex = 0;
@@ -339,6 +366,7 @@ function createMainHandlers(ctx: {
         signal: ctx.signal,
         maxIterations: 14,
         subagentId: id,
+        langRule: ctx.langRule,
       });
       const listing = await sub.listFiles(WORKDIR).catch(() => ({ ok: false, output: "" }));
       ctx.emit({
@@ -373,10 +401,13 @@ async function runLoop(opts: {
   signal?: AbortSignal;
   maxIterations: number;
   subagentId?: string;
+  /** 语言约束，追加到系统提示词末尾 */
+  langRule?: string;
 }): Promise<string> {
   const { emit, signal } = opts;
+  const systemPrompt = [opts.system, opts.langRule].filter(Boolean).join("\n\n");
   const messages: LlmMessage[] = [
-    { role: "system", content: opts.system },
+    { role: "system", content: systemPrompt },
     { role: "user", content: opts.task },
   ];
 
@@ -494,6 +525,7 @@ function buildTaskPrompt(
   files: UploadedFileRef[],
   plan: Plan,
   history?: { role: "user" | "assistant"; content: string }[],
+  langRule = "",
 ): string {
   const parts: string[] = [];
   if (history?.length) {
@@ -514,7 +546,7 @@ function buildTaskPrompt(
     `执行计划：\n${plan.steps.map((s) => `- ${s.id}｜${s.title}${s.detail ? `：${s.detail}` : ""}`).join("\n")}`,
   );
   parts.push(
-    `请开始执行。每一步用 update_step 同步状态；独立子任务用 dispatch_subagent 并行派发；完成后调用 finish。`,
+    `请开始执行。每一步用 update_step 同步状态；独立子任务用 dispatch_subagent 并行派发；完成后调用 finish。${langRule ? `\n${langRule}` : ""}`,
   );
   return parts.join("\n\n");
 }
@@ -522,9 +554,10 @@ function buildTaskPrompt(
 export async function runTask(input: TaskInput): Promise<void> {
   const { cfg, emit, signal } = input;
   const files = input.files ?? [];
+  const langRule = languageRule(input.language || process.env.AGENT_LANGUAGE || "zh-CN");
   try {
     emit({ type: "status", message: "正在分析需求并生成计划…" });
-    const plan = await planTask(cfg, input.task, files, signal);
+    const plan = await planTask(cfg, input.task, files, signal, langRule);
     emit({ type: "plan", plan });
 
     // 会话空闲超过阈值时容器会被自动回收，这里取不到了就重新创建
@@ -543,18 +576,20 @@ export async function runTask(input: TaskInput): Promise<void> {
       cfg,
       signal,
       image: plan.image || input.image,
+      langRule,
     });
 
     const summary = await runLoop({
       cfg,
       system: MAIN_SYSTEM,
-      task: buildTaskPrompt(input.task, files, plan, input.history),
+      task: buildTaskPrompt(input.task, files, plan, input.history, langRule),
       sandbox,
       schemas: MAIN_TOOLS,
       handlers,
       emit,
       signal,
       maxIterations: 30,
+      langRule,
     });
 
     emit({ type: "done", summary: truncate(summary, 8000), sandbox: sandbox.info, plan });
