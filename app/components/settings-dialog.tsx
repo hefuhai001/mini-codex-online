@@ -1,3 +1,9 @@
+/**
+ * 作用：模型与沙箱设置弹窗（Base URL、API Key、模型、默认镜像），提供预设一键填充。
+ * 使用位置：由 workspace.tsx 在点击「设置」时渲染。
+ * 输入：open 是否显示、settings 当前配置、onSave / onClose 回调。
+ * 输出：弹窗 JSX；保存时把新配置回传 workspace 并写入 localStorage。
+ */
 "use client";
 
 import { useState } from "react";

@@ -1,3 +1,9 @@
+/**
+ * 作用：渲染对话消息列表，包含用户气泡、助手流式文本、工具调用折叠卡片、子代理卡片与错误提示。
+ * 使用位置：由 workspace.tsx 渲染在页面中部的滚动区。
+ * 输入：items: ChatItem[]（来自 workspace 的消息状态）。
+ * 输出：消息区 JSX；除自动滚动到底部外无副作用、不发请求。
+ */
 "use client";
 
 import { useEffect, useRef, useState } from "react";

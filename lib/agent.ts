@@ -1,3 +1,10 @@
+/**
+ * 作用：代理核心。生成任务计划 → 主代理在容器中循环调用工具执行 →
+ *       可并行派发拥有独立容器的子代理 → 汇总并输出最终总结。
+ * 使用位置：仅被 app/api/chat/route.ts 调用，是唯一的代理入口。
+ * 输入：TaskInput { cfg 模型配置, task 用户任务, files 已上传文件, sandboxId, image, history, emit, signal }。
+ * 输出：无返回值，通过 emit 推送 AgentEvent 流（status/plan/step/tool/subagent/delta/container/error/done）。
+ */
 import { randomUUID } from "node:crypto";
 import {
   chatJson,

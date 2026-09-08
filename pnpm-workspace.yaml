@@ -1,3 +1,7 @@
+# 作用：pnpm workspace 配置，此处用于声明原生依赖是否允许执行构建脚本（allowBuilds）。
+# 使用位置：执行 pnpm install 时读取。
+# 输入：仓库中的依赖声明与 workspace 包。
+# 输出：控制 sharp、unrs-resolver 等原生依赖是否执行 install 脚本。
 allowBuilds:
   sharp: false
   unrs-resolver: false

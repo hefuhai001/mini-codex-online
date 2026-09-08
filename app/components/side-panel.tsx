@@ -1,3 +1,10 @@
+/**
+ * 作用：右侧面板，展示 Docker 状态与空闲倒计时、容器管理、文件上传、手动执行命令、
+ *       以及任务计划与步骤状态。
+ * 使用位置：由 workspace.tsx 渲染（宽屏常驻，窄屏以抽屉形式打开）。
+ * 输入：plan、sandbox、docker、image、busy、idleTimeoutMs、idleDeadlineMs 及各项操作回调。
+ * 输出：面板 JSX；通过回调触发容器创建/销毁/执行与文件上传。
+ */
 "use client";
 
 import { useEffect, useRef, useState } from "react";

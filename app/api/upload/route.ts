@@ -1,3 +1,9 @@
+/**
+ * 作用：把本地文件上传进临时容器（默认 /workspace/uploads），没有容器时自动创建一个。
+ * 使用位置：workspace.tsx 的 uploadFiles()，服务于消息附件与侧边面板上传。
+ * 输入：multipart/form-data，字段 files/file（可多个）、可选 sandboxId、image、path（目标目录）。
+ * 输出：JSON { sandbox, files:[{ name, path, size }], failures:string[] }。
+ */
 import { Sandbox, WORKDIR } from "@/lib/sandbox";
 import { sanitizePath } from "@/lib/docker";
 import type { UploadedFileRef } from "@/lib/types";

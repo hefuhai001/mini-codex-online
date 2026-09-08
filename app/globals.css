@@ -1,3 +1,9 @@
+/*
+ * 作用：全局样式，引入 Tailwind v4、定义主题色与字体变量、滚动条样式。
+ * 使用位置：由 app/layout.tsx 引入，作用于整个应用。
+ * 输入：无（纯 CSS 声明）。
+ * 输出：全局 CSS 变量与基础元素样式。
+ */
 @import "tailwindcss";
 
 :root {

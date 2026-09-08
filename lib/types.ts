@@ -1,3 +1,9 @@
+/**
+ * 作用：全项目共享的类型与 SSE 事件协议（计划、沙箱信息、上传文件引用、AgentEvent）。
+ * 使用位置：lib/agent.ts、lib/sandbox.ts、app/api/*、app/components/* 共同引用，是前后端数据契约。
+ * 输入：无（纯类型声明，运行时无副作用）。
+ * 输出：导出 StepStatus / PlanStep / Plan / SandboxInfo / UploadedFileRef / AgentEvent 等类型。
+ */
 export type StepStatus =
   | "pending"
   | "running"

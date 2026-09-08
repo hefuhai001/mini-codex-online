@@ -1,3 +1,11 @@
+/**
+ * 作用：对话主界面容器组件，管理消息列表、消费 SSE 事件、维护计划与沙箱状态、
+ *       处理上传/发送/中断，并驱动空闲倒计时。
+ * 使用位置：由 app/page.tsx 直接渲染，是整页唯一的状态中心。
+ * 输入：用户输入的文本与附件、设置弹窗中的模型配置、侧边面板的操作回调。
+ * 输出：渲染头部、MessageList、输入区、SidePanel、SettingsDialog；
+ *       并向 /api/chat、/api/sandbox、/api/upload 发起请求。
+ */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";

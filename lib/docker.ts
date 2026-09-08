@@ -1,3 +1,10 @@
+/**
+ * 作用：docker 命令封装层，默认通过 WSL 执行 `docker -H tcp://localhost:2375`，
+ *       负责建/删容器、容器内 exec、读写文件、列目录，并处理超时与输出截断。
+ * 使用位置：仅供 lib/sandbox.ts 调用，不直接暴露给路由或界面。
+ * 输入：docker 子命令 argv、可选 stdin（string|Buffer）、timeoutMs、AbortSignal。
+ * 输出：RunResult { code, stdout, stderr, timedOut }；dockerStatus() 另返回 daemon 版本与连接地址。
+ */
 import { spawn } from "node:child_process";
 
 export interface RunResult {

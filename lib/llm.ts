@@ -1,3 +1,11 @@
+/**
+ * 作用：OpenAI 兼容大模型客户端，支持非流式 JSON 输出、流式增量输出、function calling，
+ *       并在模型不支持工具时提供纯文本兜底解析。
+ * 使用位置：由 lib/agent.ts 的规划器、主代理循环与子代理循环调用。
+ * 输入：LLMConfig（baseUrl/apiKey/model）、LlmMessage[]、可选 ToolSchema[]、AbortSignal。
+ * 输出：chatJson() 返回字符串；streamChat() 逐块产出 { type:"delta"|"tool_calls" }；
+ *       parseFallbackToolCall() 返回 { name, args } 或 null。
+ */
 export interface LLMConfig {
   baseUrl: string;
   apiKey: string;

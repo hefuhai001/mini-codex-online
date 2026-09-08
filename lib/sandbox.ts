@@ -1,3 +1,11 @@
+/**
+ * 作用：临时容器（沙箱）生命周期管理：创建、执行命令、读写文件、销毁，
+ *       以及基于 lastActivityAt 的空闲超时自动回收巡检（每 30 秒一次）。
+ * 使用位置：lib/agent.ts（主/子代理）、app/api/sandbox/route.ts、app/api/upload/route.ts。
+ * 输入：镜像名、标签、角色（main/sub）、父容器 id、shell 命令与超时、文件内容（string|Buffer）。
+ * 输出：Sandbox 实例；exec/writeFile 等返回 ExecOutcome { ok, output }；
+ *       listSandboxes() 返回带 lastActivityAt 的 SandboxInfo[]。
+ */
 import { randomUUID } from "node:crypto";
 import {
   createContainer,

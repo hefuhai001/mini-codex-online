@@ -1,3 +1,9 @@
+/**
+ * 作用：对话主接口。接收用户消息，驱动代理执行，并以 SSE 流式回传执行事件。
+ * 使用位置：前端 app/components/workspace.tsx 的 send() 通过 fetch 调用。
+ * 输入：POST JSON { message, history, config{baseUrl,apiKey,model,image}, sandboxId, files }。
+ * 输出：text/event-stream 流，每帧为 `data: <AgentEvent JSON>`；参数错误时返回 400 JSON。
+ */
 import { runTask } from "@/lib/agent";
 import type { LLMConfig } from "@/lib/llm";
 import type { AgentEvent, UploadedFileRef } from "@/lib/types";

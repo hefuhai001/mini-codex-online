@@ -1,3 +1,9 @@
+/**
+ * 作用：根布局，定义 <html>/<body>、字体变量、页面元数据，并引入全局样式。
+ * 使用位置：Next.js App Router 的根布局，包裹所有页面。
+ * 输入：children（当前路由页面内容）。
+ * 输出：完整的 HTML 文档骨架。
+ */
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
