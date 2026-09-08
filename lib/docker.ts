@@ -1,10 +1,11 @@
 /**
  * 作用：docker 命令封装层，默认通过 WSL 执行 `docker -H tcp://localhost:2375`，
- *       负责建/删容器（支持 -v 挂载宿主机目录）、容器内 exec、读写文件、列目录，
- *       并处理超时与输出截断，另提供 Windows→WSL 路径转换。
+ *       负责建/删容器（支持 -v 挂载宿主机目录）、容器内 exec、读写文件、列目录、
+ *       列出本项目容器的真实状态（用于状态对账），并处理超时、截断与 Windows→WSL 路径转换。
  * 使用位置：仅供 lib/sandbox.ts 调用，不直接暴露给路由或界面。
  * 输入：docker 子命令 argv、可选 stdin（string|Buffer）、timeoutMs、AbortSignal、挂载项。
- * 输出：RunResult { code, stdout, stderr, timedOut }；dockerStatus() 另返回 daemon 版本与连接地址。
+ * 输出：RunResult { code, stdout, stderr, timedOut }；dockerStatus() 返回 daemon 版本与连接地址；
+ *       listManagedContainers() 返回 { id, name, image, state }[]。
  */
 import { spawn } from "node:child_process";
 
@@ -186,6 +187,49 @@ export async function dockerStatus(): Promise<{
     host,
     error: `${(res.stderr || res.stdout || "无法连接 Docker").trim().slice(0, 400)}\n（DOCKER_HOST=${host}）`,
   };
+}
+
+/** 本项目创建的容器名前缀，用于对账与清理 */
+export const CONTAINER_PREFIX = process.env.SANDBOX_CONTAINER_PREFIX ?? "mini-codex";
+
+export interface ContainerSummary {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+}
+
+/**
+ * 列出本项目创建的容器的真实状态（来源：docker ps），
+ * 用于把内存注册表与 docker 实际状态对账，解决刷新页面/多进程导致的"看不到但还在跑"。
+ */
+export async function listManagedContainers(): Promise<ContainerSummary[]> {
+  const res = await docker(
+    [
+      "ps",
+      "-a",
+      "--filter",
+      `name=${CONTAINER_PREFIX}-`,
+      "--format",
+      "{{.Names}} @@@ {{.Image}} @@@ {{.State}}",
+    ],
+    { timeoutMs: 60000 },
+  );
+  if (res.code !== 0) return [];
+  const result: ContainerSummary[] = [];
+  for (const line of res.stdout.split("\n")) {
+    const text = line.trim();
+    if (!text) continue;
+    const [name, image, state] = text.split(" @@@ ");
+    if (!name || !name.startsWith(`${CONTAINER_PREFIX}-`)) continue;
+    result.push({
+      id: name.slice(CONTAINER_PREFIX.length + 1),
+      name,
+      image: (image ?? "").trim(),
+      state: (state ?? "").trim(),
+    });
+  }
+  return result;
 }
 
 export interface ContainerMount {

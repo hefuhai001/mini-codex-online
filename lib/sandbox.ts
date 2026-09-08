@@ -1,6 +1,7 @@
 /**
  * 作用：临时容器（沙箱）生命周期管理：创建（默认把宿主机 workspace 目录挂载到容器 /workspace）、
- *       执行命令、读写文件、销毁，以及基于 lastActivityAt 的空闲超时自动回收巡检（每 30 秒一次）。
+ *       执行命令、读写文件、销毁，基于 lastActivityAt 的空闲超时自动回收巡检（每 30 秒一次），
+ *       以及 syncSandboxes() 与 docker 真实状态对账（接管遗留容器、清理已停止的容器）。
  * 使用位置：lib/agent.ts（主/子代理）、app/api/sandbox/route.ts、app/api/upload/route.ts。
  * 输入：镜像名、标签、角色（main/sub）、父容器 id、挂载源目录、shell 命令与超时、文件内容（string|Buffer）。
  * 输出：Sandbox 实例；exec/writeFile 等返回 ExecOutcome { ok, output }；
@@ -10,9 +11,11 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import {
+  CONTAINER_PREFIX,
   createContainer,
   dockerMode,
   execInContainer,
+  listManagedContainers,
   listFilesInContainer,
   readFileInContainer,
   removeContainer,
@@ -109,7 +112,52 @@ function ensureReaper(): void {
 ensureReaper();
 
 function containerName(id: string): string {
-  return `mini-codex-${id}`;
+  return `${CONTAINER_PREFIX}-${id}`;
+}
+
+/**
+ * 与 docker 实际状态对账：
+ * - 已退出/不存在的容器会被清理或移出注册表
+ * - docker 里存在但注册表没有的容器会被接管（例如服务重启、多进程、页面刷新后）
+ * 返回对账后的沙箱列表，保证"页面上看到的"和"真正在跑的"一致。
+ */
+export async function syncSandboxes(): Promise<SandboxInfo[]> {
+  const actual = await listManagedContainers();
+  const alive = new Map<string, { name: string; image: string }>();
+  const dead: string[] = [];
+  for (const item of actual) {
+    if (item.state !== "running") {
+      dead.push(item.name);
+      continue;
+    }
+    alive.set(item.id, { name: item.name, image: item.image });
+  }
+  if (dead.length) {
+    await Promise.all(dead.map((name) => removeContainer(name).catch(() => undefined)));
+  }
+
+  for (const id of Array.from(sandboxes.keys())) {
+    if (!alive.has(id)) sandboxes.delete(id);
+  }
+
+  for (const [id, item] of alive) {
+    const existing = sandboxes.get(id);
+    if (existing) {
+      if (!existing.image || existing.image === "unknown") existing.image = item.image;
+      continue;
+    }
+    const now = Date.now();
+    sandboxes.set(id, {
+      id,
+      name: item.name,
+      image: item.image,
+      createdAt: now,
+      lastActivityAt: now,
+      role: "main",
+    });
+  }
+
+  return listSandboxes();
 }
 
 function shortId(): string {

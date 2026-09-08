@@ -1,5 +1,5 @@
 /**
- * 作用：容器管理接口，提供状态查询、创建容器、在容器内执行命令、销毁容器。
+ * 作用：容器管理接口，提供状态查询（含与 docker 真实状态对账）、创建容器、在容器内执行命令、销毁容器。
  * 使用位置：workspace.tsx（刷新状态 / 新建 / 销毁）与 side-panel.tsx（手动执行命令）。
  * 输入：GET 无参；POST JSON { action:"create"|"exec"|"remove", sandboxId?, image?, command?, timeoutMs? }；
  *       DELETE 用查询参数 ?id=<容器 id>。
@@ -12,7 +12,7 @@ import {
   IDLE_TIMEOUT_MS,
   MOUNT_ENABLED,
   Sandbox,
-  listSandboxes,
+  syncSandboxes,
   truncate,
 } from "@/lib/sandbox";
 
@@ -25,9 +25,11 @@ export async function GET() {
     ok: false,
     error: err instanceof Error ? err.message : String(err),
   }));
+  // 与 docker 实际状态对账，避免"页面看不到但容器还在跑"
+  const sandboxes = await syncSandboxes().catch(() => []);
   return Response.json({
     docker: status,
-    sandboxes: listSandboxes(),
+    sandboxes,
     idleTimeoutMs: IDLE_TIMEOUT_MS,
     hostWorkspaceDir: HOST_WORKSPACE_DIR,
     mountEnabled: MOUNT_ENABLED,

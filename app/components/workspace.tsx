@@ -168,12 +168,30 @@ export default function Workspace() {
         docker?: DockerStatus;
         idleTimeoutMs?: number;
         hostWorkspaceDir?: string;
+        sandboxes?: SandboxInfo[];
       };
       setDocker(data.docker ?? { ok: false, error: "未知状态" });
       if (typeof data.idleTimeoutMs === "number" && data.idleTimeoutMs > 0) {
         setIdleTimeoutMs(data.idleTimeoutMs);
       }
       if (typeof data.hostWorkspaceDir === "string") setHostWorkspaceDir(data.hostWorkspaceDir);
+
+      // 以服务端真实状态为准恢复当前容器，刷新页面后仍能看到正在运行的容器
+      const timeout =
+        typeof data.idleTimeoutMs === "number" && data.idleTimeoutMs > 0
+          ? data.idleTimeoutMs
+          : 600_000;
+      const mains = (data.sandboxes ?? [])
+        .filter((item) => item.role !== "sub")
+        .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+      if (!mains.length) {
+        setSandbox(null);
+        setIdleDeadlineMs(null);
+      } else {
+        const current = mains[0];
+        setSandbox((prev) => (prev && prev.id === current.id ? prev : current));
+        setIdleDeadlineMs(current.lastActivityAt + timeout);
+      }
     } catch {
       setDocker({ ok: false, error: "无法访问服务端接口" });
     }
@@ -264,7 +282,14 @@ export default function Workspace() {
   };
 
   const createSandbox = async () => {
+    if (running) return;
     try {
+      // 先销毁已有容器，避免反复点击新建后旧容器仍在后台运行
+      if (sandbox) {
+        await fetch(`/api/sandbox?id=${encodeURIComponent(sandbox.id)}`, { method: "DELETE" });
+        setSandbox(null);
+        setIdleDeadlineMs(null);
+      }
       flash("正在创建容器…");
       const res = await fetch("/api/sandbox", {
         method: "POST",
@@ -276,6 +301,7 @@ export default function Workspace() {
       setSandbox(data.sandbox);
       markActivity();
       flash(`容器已就绪：${data.sandbox.name}`);
+      await refreshDocker();
     } catch (err) {
       flash(err instanceof Error ? err.message : "创建容器失败");
     }
@@ -288,6 +314,7 @@ export default function Workspace() {
       setSandbox(null);
       setIdleDeadlineMs(null);
       flash("容器已销毁");
+      await refreshDocker();
     } catch (err) {
       flash(err instanceof Error ? err.message : "销毁失败");
     }
