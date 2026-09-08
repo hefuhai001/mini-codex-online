@@ -7,7 +7,14 @@
  *       exec 返回 { result:{ ok, output } }。
  */
 import { dockerStatus } from "@/lib/docker";
-import { IDLE_TIMEOUT_MS, Sandbox, listSandboxes, truncate } from "@/lib/sandbox";
+import {
+  HOST_WORKSPACE_DIR,
+  IDLE_TIMEOUT_MS,
+  MOUNT_ENABLED,
+  Sandbox,
+  listSandboxes,
+  truncate,
+} from "@/lib/sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +29,8 @@ export async function GET() {
     docker: status,
     sandboxes: listSandboxes(),
     idleTimeoutMs: IDLE_TIMEOUT_MS,
+    hostWorkspaceDir: HOST_WORKSPACE_DIR,
+    mountEnabled: MOUNT_ENABLED,
   });
 }
 

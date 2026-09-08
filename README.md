@@ -29,6 +29,8 @@ pnpm dev
 | `DOCKER_BIN` | docker 可执行文件在 WSL 内的路径 | `docker` |
 | `SANDBOX_IMAGE` | 默认沙箱镜像 | `ubuntu:24.04` |
 | `SANDBOX_WORKDIR` | 容器内工作目录 | `/workspace` |
+| `SANDBOX_MOUNT` | 是否把容器工作目录挂载到宿主机（`0` 关闭） | `1` |
+| `SANDBOX_HOST_WORKSPACE` | 挂载源目录，默认项目根目录下的 `workspace` | 空 |
 | `SANDBOX_IDLE_TIMEOUT_MS` | 会话空闲多久后销毁对应容器 | `600000`（10 分钟，最小 30000） |
 
 > Windows 上若没有安装 docker CLI，保持 `DOCKER_MODE=wsl` 即可：会用 WSL 里的 `docker -H tcp://localhost:2375` 连接本机 2375 端口的 daemon。
@@ -46,6 +48,7 @@ pnpm dev
 2. **执行**：主代理在 `/workspace` 里通过 `exec` 跑脚本，用 `write_file / read_file / list_files` 操作文件，每步用 `update_step` 同步进度。
 3. **派发子代理**：`dispatch_subagent` 会为子任务新建一个**独立容器**，子代理自行完成后销毁容器，只回传结论；同一轮里的多个派发会并行执行。
 4. **文件上传**：输入框的 `＋` 或右侧面板的上传区，会把文件写入容器的 `/workspace/uploads`。
+5. **产物落盘**：容器的 `/workspace` 默认挂载到项目根目录下的 `workspace/`，代理生成的脚本、报告等在宿主机直接可见；子代理各自挂载到 `workspace/.subagents/<id>/`。若挂载失败会自动退化为容器内目录并在面板提示。
 5. **手动操作**：右侧面板可新建/销毁容器、手动执行命令。
 
 所有容器命名 `mini-codex-<id>`，任务结束后保留以便查看产物，可手动销毁。

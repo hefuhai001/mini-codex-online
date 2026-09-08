@@ -35,6 +35,10 @@ export interface SandboxInfo {
   label?: string;
   role?: "main" | "sub";
   parentId?: string;
+  /** 挂载到容器工作目录的宿主机目录（未挂载时为空） */
+  hostDir?: string;
+  /** 是否成功挂载（挂载失败时会退化为容器内目录） */
+  mounted?: boolean;
 }
 
 export interface UploadedFileRef {

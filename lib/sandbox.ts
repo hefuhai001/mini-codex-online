@@ -1,19 +1,23 @@
 /**
- * 作用：临时容器（沙箱）生命周期管理：创建、执行命令、读写文件、销毁，
- *       以及基于 lastActivityAt 的空闲超时自动回收巡检（每 30 秒一次）。
+ * 作用：临时容器（沙箱）生命周期管理：创建（默认把宿主机 workspace 目录挂载到容器 /workspace）、
+ *       执行命令、读写文件、销毁，以及基于 lastActivityAt 的空闲超时自动回收巡检（每 30 秒一次）。
  * 使用位置：lib/agent.ts（主/子代理）、app/api/sandbox/route.ts、app/api/upload/route.ts。
- * 输入：镜像名、标签、角色（main/sub）、父容器 id、shell 命令与超时、文件内容（string|Buffer）。
+ * 输入：镜像名、标签、角色（main/sub）、父容器 id、挂载源目录、shell 命令与超时、文件内容（string|Buffer）。
  * 输出：Sandbox 实例；exec/writeFile 等返回 ExecOutcome { ok, output }；
  *       listSandboxes() 返回带 lastActivityAt 的 SandboxInfo[]。
  */
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import {
   createContainer,
+  dockerMode,
   execInContainer,
   listFilesInContainer,
   readFileInContainer,
   removeContainer,
   sanitizePath,
+  toWslPath,
   writeFileInContainer,
   type RunResult,
 } from "./docker";
@@ -21,6 +25,29 @@ import { SandboxInfo } from "./types";
 
 export const DEFAULT_IMAGE = process.env.SANDBOX_IMAGE ?? "ubuntu:24.04";
 export const WORKDIR = process.env.SANDBOX_WORKDIR ?? "/workspace";
+
+/** 是否把容器工作目录挂载到宿主机，默认开启（SANDBOX_MOUNT=0 关闭） */
+export const MOUNT_ENABLED = (process.env.SANDBOX_MOUNT ?? "1").toLowerCase() !== "0";
+
+function defaultHostWorkspace(): string {
+  const dir = path.join(process.cwd(), "workspace");
+  return dockerMode() === "wsl" ? toWslPath(dir) : dir;
+}
+
+/**
+ * 宿主机侧的工作目录（容器 /workspace 的挂载源）。
+ * 默认：项目根目录下的 workspace；WSL 模式下自动转成 /mnt/<盘符>/... 形式。
+ */
+export const HOST_WORKSPACE_DIR: string = MOUNT_ENABLED
+  ? (process.env.SANDBOX_HOST_WORKSPACE ?? "").trim() || defaultHostWorkspace()
+  : "";
+
+/** 子代理使用主工作目录下的独立子目录，避免并发写冲突 */
+export function subagentHostDir(key: string): string | undefined {
+  if (!HOST_WORKSPACE_DIR) return undefined;
+  const safe = key.replace(/[^\w.-]/g, "_");
+  return `${HOST_WORKSPACE_DIR}/.subagents/${safe}`;
+}
 
 /** 会话空闲多久后销毁对应的临时容器，默认 10 分钟 */
 export const IDLE_TIMEOUT_MS = resolveIdleTimeout();
@@ -107,10 +134,39 @@ export class Sandbox {
     role?: "main" | "sub";
     workdir?: string;
     parentId?: string;
+    /** 挂载源目录，默认使用 HOST_WORKSPACE_DIR；传空字符串表示不挂载 */
+    hostDir?: string;
   }): Promise<Sandbox> {
     const id = shortId();
     const image = (opts.image ?? "").trim() || DEFAULT_IMAGE;
     const name = containerName(id);
+    const workdir = opts.workdir ?? WORKDIR;
+    const hostDir = opts.hostDir ?? HOST_WORKSPACE_DIR;
+
+    let mounted = false;
+    if (hostDir) {
+      try {
+        mkdirSync(hostDir, { recursive: true });
+      } catch {
+        /* 目录已存在或无权限，交给 docker 处理 */
+      }
+    }
+
+    const mounts = hostDir ? [{ source: hostDir, target: workdir }] : [];
+    let res = await createContainer({ name, image, workdir, mounts });
+    if (res.code !== 0 && mounts.length > 0) {
+      // 挂载失败（路径对 daemon 不可见等）时退化为容器内部目录，保证任务仍可运行
+      await removeContainer(name).catch(() => undefined);
+      res = await createContainer({ name, image, workdir, mounts: [] });
+    } else if (res.code === 0) {
+      mounted = mounts.length > 0;
+    }
+    if (res.code !== 0) {
+      throw new Error(
+        `创建容器失败：${(res.stderr || res.stdout || "未知错误").trim().slice(0, 500)}`,
+      );
+    }
+
     const now = Date.now();
     const info: SandboxInfo = {
       id,
@@ -121,13 +177,9 @@ export class Sandbox {
       label: opts.label,
       role: opts.role ?? "main",
       parentId: opts.parentId,
+      hostDir: mounted ? hostDir : undefined,
+      mounted,
     };
-    const res = await createContainer({ name, image, workdir: opts.workdir ?? WORKDIR });
-    if (res.code !== 0) {
-      throw new Error(
-        `创建容器失败：${(res.stderr || res.stdout || "未知错误").trim().slice(0, 500)}`,
-      );
-    }
     sandboxes.set(id, info);
     return new Sandbox(info);
   }

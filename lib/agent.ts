@@ -15,13 +15,26 @@ import {
   type LLMConfig,
   type ToolSchema,
 } from "./llm";
-import { DEFAULT_IMAGE, Sandbox, WORKDIR, truncate, type ExecOutcome } from "./sandbox";
+import {
+  DEFAULT_IMAGE,
+  HOST_WORKSPACE_DIR,
+  Sandbox,
+  WORKDIR,
+  subagentHostDir,
+  truncate,
+  type ExecOutcome,
+} from "./sandbox";
 import type { AgentEvent, Plan, PlanStep, StepStatus, UploadedFileRef } from "./types";
+
+const MOUNT_HINT = HOST_WORKSPACE_DIR
+  ? `- 容器内 ${WORKDIR} 已挂载到宿主机目录 ${HOST_WORKSPACE_DIR}，产出的文件在宿主机上可直接查看`
+  : "";
 
 const MAIN_SYSTEM = `你是 Mini Codex —— 在一个一次性 Docker 容器中完成用户任务的编码代理。
 
 环境约定：
 - 容器内工作目录是 ${WORKDIR}，用户上传的文件位于 ${WORKDIR}/uploads
+${MOUNT_HINT}
 - 容器可能是极简镜像，缺什么工具就装什么（Debian/Ubuntu 用：DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y <pkg>）
 - 你无法访问宿主机，所有操作只能通过工具在容器内完成
 
@@ -39,6 +52,7 @@ const SUBAGENT_SYSTEM = `你是 Mini Codex 派出的子代理，在一个独立�
 规则：
 - 只完成分配给你的子任务，不要扩大范围
 - 工作目录 ${WORKDIR}，缺少的工具自行安装
+${MOUNT_HINT}
 - 用 exec 运行命令，用 write_file 写文件，用 read_file / list_files 查看结果
 - 完成后必须调用 finish，用中文返回：执行结果、产物路径、验证方式、遇到的问题`;
 
@@ -309,6 +323,7 @@ function createMainHandlers(ctx: {
       label: label ?? id,
       role: "sub",
       parentId: ctx.sandbox.info.id,
+      hostDir: subagentHostDir(id),
     });
     ctx.emit({ type: "container", action: "created", sandbox: sub.info });
 

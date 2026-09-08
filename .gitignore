@@ -20,6 +20,9 @@
 # production
 /build
 
+# 容器工作目录挂载点（运行时产物）
+/workspace/
+
 # misc
 .DS_Store
 *.pem

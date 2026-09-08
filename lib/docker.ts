@@ -1,8 +1,9 @@
 /**
  * 作用：docker 命令封装层，默认通过 WSL 执行 `docker -H tcp://localhost:2375`，
- *       负责建/删容器、容器内 exec、读写文件、列目录，并处理超时与输出截断。
+ *       负责建/删容器（支持 -v 挂载宿主机目录）、容器内 exec、读写文件、列目录，
+ *       并处理超时与输出截断，另提供 Windows→WSL 路径转换。
  * 使用位置：仅供 lib/sandbox.ts 调用，不直接暴露给路由或界面。
- * 输入：docker 子命令 argv、可选 stdin（string|Buffer）、timeoutMs、AbortSignal。
+ * 输入：docker 子命令 argv、可选 stdin（string|Buffer）、timeoutMs、AbortSignal、挂载项。
  * 输出：RunResult { code, stdout, stderr, timedOut }；dockerStatus() 另返回 daemon 版本与连接地址。
  */
 import { spawn } from "node:child_process";
@@ -27,6 +28,11 @@ const WSL_DOCKER_HOST = (process.env.WSL_DOCKER_HOST ?? "").trim();
 
 export function dockerHost(): string {
   return MODE === "wsl" ? WSL_DOCKER_HOST || DOCKER_HOST : DOCKER_HOST;
+}
+
+/** 当前 docker CLI 的运行模式：wsl = 借 WSL 里的 CLI，host = 直接用本机 CLI */
+export function dockerMode(): string {
+  return MODE;
 }
 
 let resolvedWsl: string | null = null;
@@ -182,18 +188,31 @@ export async function dockerStatus(): Promise<{
   };
 }
 
-/** 创建并后台保活一个临时容器。 */
+export interface ContainerMount {
+  /** 宿主机（或 daemon 可见）路径 */
+  source: string;
+  /** 容器内路径 */
+  target: string;
+}
+
+/** 创建并后台保活一个临时容器，可选挂载宿主机目录。 */
 export async function createContainer(opts: {
   name: string;
   image: string;
   workdir: string;
+  mounts?: ContainerMount[];
 }): Promise<RunResult> {
+  const mountArgs: string[] = [];
+  for (const mount of opts.mounts ?? []) {
+    mountArgs.push("-v", `${mount.source}:${mount.target}`);
+  }
   const res = await docker(
     [
       "run",
       "-d",
       "--name",
       opts.name,
+      ...mountArgs,
       "-w",
       opts.workdir,
       opts.image,
@@ -259,6 +278,15 @@ export async function listFilesInContainer(
   return docker(["exec", "-w", dir, name, "sh", "-c", "ls -lah"], {
     timeoutMs: opts.timeoutMs ?? 60000,
   });
+}
+
+/** 把 Windows 路径转成 WSL 的 /mnt/<盘符>/... 形式（非盘符路径原样返回）。 */
+export function toWslPath(input: string): string {
+  const matched = /^([A-Za-z]):[\\/](.*)$/.exec(input);
+  if (!matched) return input.replace(/\\/g, "/");
+  const drive = matched[1].toLowerCase();
+  const rest = matched[2].replace(/\\/g, "/");
+  return `/mnt/${drive}/${rest}`;
 }
 
 /** 规范化容器内路径，避免破坏 shell 引用。 */

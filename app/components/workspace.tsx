@@ -143,6 +143,7 @@ export default function Workspace() {
   const [notice, setNotice] = useState<string | null>(null);
   const [idleTimeoutMs, setIdleTimeoutMs] = useState(600_000);
   const [idleDeadlineMs, setIdleDeadlineMs] = useState<number | null>(null);
+  const [hostWorkspaceDir, setHostWorkspaceDir] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -163,11 +164,16 @@ export default function Workspace() {
   const refreshDocker = useCallback(async () => {
     try {
       const res = await fetch("/api/sandbox", { cache: "no-store" });
-      const data = (await res.json()) as { docker?: DockerStatus; idleTimeoutMs?: number };
+      const data = (await res.json()) as {
+        docker?: DockerStatus;
+        idleTimeoutMs?: number;
+        hostWorkspaceDir?: string;
+      };
       setDocker(data.docker ?? { ok: false, error: "未知状态" });
       if (typeof data.idleTimeoutMs === "number" && data.idleTimeoutMs > 0) {
         setIdleTimeoutMs(data.idleTimeoutMs);
       }
+      if (typeof data.hostWorkspaceDir === "string") setHostWorkspaceDir(data.hostWorkspaceDir);
     } catch {
       setDocker({ ok: false, error: "无法访问服务端接口" });
     }
@@ -434,6 +440,7 @@ export default function Workspace() {
       idleTimeoutMs={idleTimeoutMs}
       idleDeadlineMs={idleDeadlineMs}
       onIdleExpire={handleIdleExpire}
+      hostWorkspaceDir={hostWorkspaceDir}
       onImageChange={(value) => setSettings((prev) => ({ ...prev, image: value }))}
       onCreate={createSandbox}
       onDestroy={destroySandbox}

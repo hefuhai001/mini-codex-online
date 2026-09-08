@@ -20,6 +20,8 @@ interface Props {
   idleTimeoutMs: number;
   idleDeadlineMs: number | null;
   onIdleExpire: () => void;
+  /** 容器工作目录挂载到的宿主机目录 */
+  hostWorkspaceDir?: string;
   onImageChange: (value: string) => void;
   onCreate: () => void;
   onDestroy: () => void;
@@ -111,6 +113,7 @@ export default function SidePanel({
   idleTimeoutMs,
   idleDeadlineMs,
   onIdleExpire,
+  hostWorkspaceDir,
   onImageChange,
   onCreate,
   onDestroy,
@@ -199,6 +202,17 @@ export default function SidePanel({
               <dd className="text-zinc-300">/workspace</dd>
             </div>
           </dl>
+        )}
+        {hostWorkspaceDir && (
+          <p className="mt-2 break-all text-[11px] leading-relaxed text-zinc-600">
+            容器 /workspace 挂载到宿主机：
+            <span className="font-mono text-zinc-400">{sandbox?.hostDir ?? hostWorkspaceDir}</span>
+          </p>
+        )}
+        {sandbox && sandbox.mounted === false && (
+          <p className="mt-1 text-[11px] text-amber-400/80">
+            未能挂载宿主机目录，产物仅存在于容器内
+          </p>
         )}
       </Section>
 
