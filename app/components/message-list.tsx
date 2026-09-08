@@ -1,13 +1,14 @@
 /**
- * 作用：渲染对话消息列表，包含用户气泡、助手流式文本、工具调用折叠卡片、子代理卡片与错误提示。
- * 使用位置：由 workspace.tsx 渲染在页面中部的滚动区。
+ * 作用：渲染对话消息列表。助手消息按「时间线块」顺序穿插展示正文、状态、工具调用与子代理卡片，
+ *       并自带滚动容器：用户停留在底部时自动跟随，向上翻阅时不再被强行拉回。
+ * 使用位置：由 workspace.tsx 渲染在页面中部的滚动区（自身即滚动容器）。
  * 输入：items: ChatItem[]（来自 workspace 的消息状态）。
- * 输出：消息区 JSX；除自动滚动到底部外无副作用、不发请求。
+ * 输出：消息区 JSX；提供「回到底部」按钮，除滚动控制外无其他副作用、不发请求。
  */
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ChatItem, ToolEvent, SubagentEvent } from "./types";
+import type { ChatItem, SubagentEvent, TimelineBlock, ToolEvent } from "./types";
 import type { UploadedFileRef } from "@/lib/types";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -32,11 +33,7 @@ function ToolCard({ tool }: { tool: ToolEvent }) {
       >
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            tool.running
-              ? "animate-pulse bg-amber-400"
-              : failed
-                ? "bg-rose-400"
-                : "bg-emerald-400"
+            tool.running ? "animate-pulse bg-amber-400" : failed ? "bg-rose-400" : "bg-emerald-400"
           }`}
         />
         <span className="shrink-0 text-[12px] font-medium text-zinc-200">
@@ -132,79 +129,132 @@ function AttachmentChips({ files }: { files: UploadedFileRef[] }) {
   );
 }
 
+function BlockView({ block }: { block: TimelineBlock }) {
+  switch (block.kind) {
+    case "text":
+      return (
+        <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-200">
+          {block.text}
+        </div>
+      );
+    case "status":
+      return (
+        <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-500" />
+          {block.text}
+        </div>
+      );
+    case "tool":
+      return <ToolCard tool={block.tool} />;
+    case "subagent":
+      return <SubagentCard sub={block.sub} />;
+    case "error":
+      return (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
+          {block.message}
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
 function AssistantBody({ item }: { item: ChatItem }) {
   return (
     <div className="space-y-2">
-      {item.content && (
-        <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-200">
-          {item.content}
-        </div>
-      )}
-      {item.status && (
-        <div className="flex items-center gap-2 text-[12px] text-zinc-500">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-500" />
-          {item.status}
-        </div>
-      )}
-      {item.subagents.map((sub) => (
-        <SubagentCard key={sub.id} sub={sub} />
+      {item.blocks.map((block) => (
+        <BlockView key={block.id} block={block} />
       ))}
-      {item.tools.map((tool) => (
-        <ToolCard key={tool.id} tool={tool} />
-      ))}
-      {item.error && (
-        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
-          {item.error}
-        </div>
-      )}
     </div>
   );
 }
 
 export default function MessageList({ items }: { items: ChatItem[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const prevCountRef = useRef(items.length);
+  const [pinned, setPinned] = useState(true);
+
+  const isAtBottom = (el: HTMLDivElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = isAtBottom(el);
+    pinnedRef.current = atBottom;
+    setPinned((prev) => (prev === atBottom ? prev : atBottom));
+  };
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const el = scrollRef.current;
+    if (!el) return;
+    // 发送新消息（一次新增用户+助手两条）时强制回到底部
+    const forced = items.length > prevCountRef.current + 1;
+    prevCountRef.current = items.length;
+    if (!forced && !pinnedRef.current) return;
+    pinnedRef.current = true;
+    setPinned(true);
+    el.scrollTop = el.scrollHeight;
   }, [items]);
 
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    pinnedRef.current = true;
+    setPinned(true);
+  };
+
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
-      {items.length === 0 && (
-        <div className="py-16 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg">
-            ⌘
-          </div>
-          <h2 className="text-[15px] font-medium text-zinc-300">Mini Codex</h2>
-          <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-zinc-500">
-            描述你要做的事，我会生成计划、在 WSL 的临时 Docker 容器里执行脚本，并可并行派发子代理。
-            <br />
-            先点右上角「设置」填写模型接口，再发送第一条消息。
-          </p>
+    <div className="relative h-full">
+      <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
+          {items.length === 0 && (
+            <div className="py-16 text-center">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg">
+                ⌘
+              </div>
+              <h2 className="text-[15px] font-medium text-zinc-300">Mini Codex</h2>
+              <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-zinc-500">
+                描述你要做的事，我会生成计划、在 WSL 的临时 Docker 容器里执行脚本，并可并行派发子代理。
+                <br />
+                先点右上角「设置」填写模型接口，再发送第一条消息。
+              </p>
+            </div>
+          )}
+
+          {items.map((item) =>
+            item.role === "user" ? (
+              <div key={item.id} className="flex justify-end">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2.5 text-[14px] leading-relaxed text-white">
+                  <div className="whitespace-pre-wrap">{item.content}</div>
+                  <AttachmentChips files={item.attachments ?? []} />
+                </div>
+              </div>
+            ) : (
+              <div key={item.id} className="flex gap-3">
+                <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-[11px] text-zinc-400">
+                  C
+                </div>
+                <div className="min-w-0 flex-1">
+                  <AssistantBody item={item} />
+                </div>
+              </div>
+            ),
+          )}
         </div>
-      )}
+      </div>
 
-      {items.map((item) =>
-        item.role === "user" ? (
-          <div key={item.id} className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2.5 text-[14px] leading-relaxed text-white">
-              <div className="whitespace-pre-wrap">{item.content}</div>
-              <AttachmentChips files={item.attachments ?? []} />
-            </div>
-          </div>
-        ) : (
-          <div key={item.id} className="flex gap-3">
-            <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-[11px] text-zinc-400">
-              C
-            </div>
-            <div className="min-w-0 flex-1">
-              <AssistantBody item={item} />
-            </div>
-          </div>
-        ),
+      {!pinned && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-[#14161a] px-3 py-1.5 text-[12px] text-zinc-300 shadow-lg transition-colors hover:bg-white/10"
+        >
+          ↓ 回到底部
+        </button>
       )}
-
-      <div ref={endRef} />
     </div>
   );
 }

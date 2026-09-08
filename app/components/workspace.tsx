@@ -47,79 +47,120 @@ function applyEvent(items: ChatItem[], event: AgentEvent): ChatItem[] {
   const last = items[items.length - 1];
   if (last.role !== "assistant") return items;
 
-  let next: ChatItem;
-  try {
-    next = structuredClone(last);
-  } catch {
-    next = { ...last, tools: [...last.tools], subagents: [...last.subagents] };
-  }
+  const next: ChatItem = structuredClone(last);
+
+  const findSubagent = (id: string) =>
+    next.blocks.find((b) => b.kind === "subagent" && b.sub.id === id);
+
+  const dropStatus = () => {
+    next.blocks = next.blocks.filter((b) => b.kind !== "status");
+  };
 
   switch (event.type) {
-    case "status":
+    case "status": {
       next.status = event.message;
+      const lastBlock = next.blocks[next.blocks.length - 1];
+      if (lastBlock && lastBlock.kind === "status") lastBlock.text = event.message;
+      else next.blocks.push({ kind: "status", id: `st-${++next.seq}`, text: event.message });
       break;
+    }
     case "delta": {
       if (event.subagentId) {
-        const sub = next.subagents.find((s) => s.id === event.subagentId);
-        if (sub) sub.output += event.text;
+        const block = findSubagent(event.subagentId);
+        if (block && block.kind === "subagent") block.sub.output += event.text;
         else next.content += event.text;
-      } else {
-        next.content += event.text;
+        break;
       }
+      next.content += event.text;
+      const lastBlock = next.blocks[next.blocks.length - 1];
+      if (lastBlock && lastBlock.kind === "text") lastBlock.text += event.text;
+      else next.blocks.push({ kind: "text", id: `tx-${++next.seq}`, text: event.text });
       break;
     }
     case "tool": {
-      const list = event.subagentId
-        ? next.subagents.find((s) => s.id === event.subagentId)?.tools
-        : next.tools;
-      if (!list) break;
+      if (event.subagentId) {
+        const block = findSubagent(event.subagentId);
+        if (!block || block.kind !== "subagent") break;
+        if (event.phase === "start") {
+          block.sub.tools.push({
+            id: event.id,
+            name: event.name,
+            args: formatArgs(event.name, event.args),
+            running: true,
+            subagentId: event.subagentId,
+          });
+        } else {
+          const tool = block.sub.tools.find((t) => t.id === event.id);
+          if (tool) {
+            tool.running = false;
+            tool.result = event.result;
+            tool.ok = event.ok;
+          }
+        }
+        break;
+      }
       if (event.phase === "start") {
-        list.push({
+        next.blocks.push({
+          kind: "tool",
           id: event.id,
-          name: event.name,
-          args: formatArgs(event.name, event.args),
-          running: true,
-          subagentId: event.subagentId,
+          tool: {
+            id: event.id,
+            name: event.name,
+            args: formatArgs(event.name, event.args),
+            running: true,
+          },
         });
       } else {
-        const tool = list.find((t) => t.id === event.id);
-        if (tool) {
-          tool.running = false;
-          tool.result = event.result;
-          tool.ok = event.ok;
+        const block = next.blocks.find((b) => b.kind === "tool" && b.tool.id === event.id);
+        if (block && block.kind === "tool") {
+          block.tool.running = false;
+          block.tool.result = event.result;
+          block.tool.ok = event.ok;
         }
       }
       break;
     }
     case "subagent": {
       if (event.phase === "start") {
-        next.subagents.push({
+        next.blocks.push({
+          kind: "subagent",
           id: event.id,
-          task: event.task,
-          label: event.label,
-          running: true,
-          output: "",
-          tools: [],
+          sub: {
+            id: event.id,
+            task: event.task,
+            label: event.label,
+            running: true,
+            output: "",
+            tools: [],
+          },
         });
       } else {
-        const sub = next.subagents.find((s) => s.id === event.id);
-        if (sub) {
-          sub.running = false;
-          sub.summary = event.summary;
+        const block = findSubagent(event.id);
+        if (block && block.kind === "subagent") {
+          block.sub.running = false;
+          block.sub.summary = event.summary;
         }
       }
       break;
     }
-    case "error":
+    case "error": {
       next.error = event.message;
       next.running = false;
       next.status = undefined;
+      dropStatus();
+      next.blocks.push({ kind: "error", id: `er-${++next.seq}`, message: event.message });
       break;
-    case "done":
+    }
+    case "done": {
       next.running = false;
       next.status = undefined;
-      if (!next.content.trim() && event.summary) next.content = event.summary;
+      dropStatus();
+      if (!next.content.trim() && event.summary) {
+        next.content = event.summary;
+        next.blocks.push({ kind: "text", id: `tx-${++next.seq}`, text: event.summary });
+      }
       break;
+    }
     default:
       break;
   }
@@ -345,8 +386,24 @@ export default function Workspace() {
 
     setItems((prev) => [
       ...prev,
-      { id: uid(), role: "user", content: text, attachments: files, tools: [], subagents: [], running: false },
-      { id: uid(), role: "assistant", content: "", tools: [], subagents: [], running: true, status: "正在初始化…" },
+      {
+        id: uid(),
+        role: "user",
+        content: text,
+        attachments: files,
+        blocks: [],
+        running: false,
+        seq: 0,
+      },
+      {
+        id: uid(),
+        role: "assistant",
+        content: "",
+        blocks: [],
+        running: true,
+        status: "正在初始化…",
+        seq: 0,
+      },
     ]);
 
     setRunning(true);
@@ -446,7 +503,14 @@ export default function Workspace() {
         if (!prev.length) return prev;
         const copy = prev.slice();
         const last = copy[copy.length - 1];
-        if (last.role === "assistant") copy[copy.length - 1] = { ...last, running: false, status: undefined };
+        if (last.role === "assistant") {
+          copy[copy.length - 1] = {
+            ...last,
+            running: false,
+            status: undefined,
+            blocks: last.blocks.filter((b) => b.kind !== "status"),
+          };
+        }
         return copy;
       });
     }
@@ -509,7 +573,7 @@ export default function Workspace() {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1">
           <MessageList items={items} />
         </div>
 
