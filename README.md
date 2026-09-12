@@ -2,6 +2,15 @@
 
 一个最小可用的 Codex 形态代理：生成任务计划 → 派发子代理 → 在 **WSL 里的 Docker 临时容器**中执行脚本，并支持把本地文件上传进容器。
 
+## 界面预览
+
+<p align="center">
+  <img src="public/screenshot-desktop.png" alt="桌面端界面" width="70%" />
+</p>
+<p align="center">
+  <img src="public/screenshot-mobile.png" alt="移动端界面" width="25%" />
+</p>
+
 ## 快速开始
 
 ```bash
@@ -68,3 +77,15 @@ lib/
   docker.ts              wsl/docker 命令封装
   sandbox.ts             沙箱生命周期
 ```
+
+## ☕ 捐赠支持
+
+如果这个项目对你有帮助，请我喝杯奶茶吧～你的支持是我持续维护的动力！
+
+<p align="center">
+  <img src="public/donation-qr.jpg" alt="捐赠二维码" width="240" />
+</p>
+
+## License
+
+内部项目，仅供学习交流使用。
